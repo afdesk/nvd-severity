@@ -82,13 +82,13 @@ async def load_cve(path):
             await map_and_save_vulnerabilities(path, vulnerabilities)
 
 
-def clone_nvd_repo(git):
+def clone_nvd_repo(git: Git):
     if NVD_LOCAL_REPO.exists():
         logging.info(f"Clone local {NVD_LOCAL_REPO} repo")
-        git.clone(NVD_LOCAL_REPO, local=True, remote_url=REPO_URL)
+        git.clone(NVD_LOCAL_REPO, remote_url=REPO_URL)
     else:
         logging.info(f"Clone {REPO_URL} repo")
-        git.clone(REPO_URL, local=False)
+        git.clone(REPO_URL)
 
 
 async def main():
@@ -97,7 +97,7 @@ async def main():
     with tempfile.TemporaryDirectory() as tmp_dir:
         nvd_repo_path = Path(tmp_dir)
 
-        git = Git(nvd_repo_path, GITHUB_USER_NAME, GITHUB_USER_EMAIL)
+        git = Git(nvd_repo_path, GITHUB_TOKEN, GITHUB_USER_NAME, GITHUB_USER_EMAIL)
         clone_nvd_repo(git)
         git.checkout(REPO_BRANCH)
 
@@ -105,8 +105,10 @@ async def main():
 
         await load_cve(cve_path)
 
-        git.commit(cve_path.as_posix(), "test")
-        git.push(REPO_BRANCH)
+        git.add(cve_path.as_posix())
+
+        git.commit("test")
+        git.push()
 
 
 def run():
