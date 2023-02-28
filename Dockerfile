@@ -1,4 +1,4 @@
-FROM --platform=linux/amd64 python:3.11.2-slim AS builder
+FROM --platform=linux/amd64 python:3.9-slim AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONFAULTHANDLER=1 \
@@ -9,42 +9,33 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     POETRY_VIRTUALENVS_IN_PROJECT=1 \
     POETRY_VERSION=1.3.2 \
     POETRY_NO_INTERACTION=1 \
-    POETRY_INSTALL_OPTS="--no-interaction --no-dev --no-root"
+    POETRY_INSTALL_OPTS="--no-interaction --no-dev --no-root" \
+    PYSETUP_PATH="/pysetup" \
+    VENV_PATH="/pysetup/.venv"
 
-ENV PATH="${POETRY_HOME}/bin:${PATH}"
+ENV PATH="${POETRY_HOME}/bin:${VENV_PATH}/bin:${PATH}"
 
-RUN apt-get update \
-    && apt-get install --no-install-recommends -y curl build-essential \
-    && curl -sSL https://install.python-poetry.org | POETRY_HOME=$POETRY_HOME python3 - --version $POETRY_VERSION \
-    && python -m venv /venv
+RUN apt-get update && \
+    apt-get install --no-install-recommends -y curl build-essential
 
-WORKDIR /app
+COPY . $PYSETUP_PATH
+WORKDIR $PYSETUP_PATH
+RUN make install && \
+    poetry build && \
+    $VENV_PATH/bin/pip install --no-deps dist/*.whl
 
-ENV PATH="/app/.venv/bin:$PATH"
+RUN ln -fns /usr/bin/python $VENV_PATH/bin/python
 
-COPY poetry.lock pyproject.toml /app/
-
-RUN poetry install --only=main --no-root
-
-
-FROM --platform=linux/amd64 python:3.11.2-slim-bullseye
+FROM --platform=linux/amd64 gcr.io/distroless/python3@sha256:a66e582f67df92987039ad8827f0773f96020661c7ae6272e5ab80e2d3abc897
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    VENV_PATH="/pysetup/.venv"
 
-RUN apt-get update \
-    && apt-get -y upgrade \
-    && apt-get install -y --no-install-recommends git \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+COPY --from=builder $VENV_PATH $VENV_PATH
 
-WORKDIR /app
+ENV PATH="${VENV_PATH}/bin:${PATH}"
 
-COPY --from=builder /app/.venv ./venv
-COPY . ./
+USER nonroot
 
-ENV PATH="/app/venv/bin:$PATH"
-
-STOPSIGNAL SIGINT
-
-CMD ["/app/venv/bin/python", "-m", "nvd_severity"]
+ENTRYPOINT ["nvd-severity"]
