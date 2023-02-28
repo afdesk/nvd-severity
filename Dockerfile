@@ -25,8 +25,6 @@ ENV PATH="/app/.venv/bin:$PATH"
 COPY poetry.lock pyproject.toml /app/
 
 RUN poetry install --only=main --no-root
-#    && poetry build -f wheel \
-#    && /venv/bin/pip install dist/*.whl
 
 
 FROM --platform=linux/amd64 python:3.11.2-slim-bullseye
@@ -34,11 +32,11 @@ FROM --platform=linux/amd64 python:3.11.2-slim-bullseye
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-#RUN apt-get update \
-#    && apt-get -y upgrade \
-#    && apt-get install -y --no-install-recommends git \
-#    && apt-get clean \
-#    && rm -rf /var/lib/apt/lists/*
+RUN apt-get update \
+    && apt-get -y upgrade \
+    && apt-get install -y --no-install-recommends git \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
