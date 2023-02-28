@@ -2,17 +2,20 @@ import asyncio
 import json
 import logging
 import os
+import tempfile
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Literal
 
 import aiofiles
 from dotenv import load_dotenv
 
+from nvd_severity.git import Git
+from nvd_severity.mapper import cveMapper
 from nvd_severity.nvd import NVD
 
 load_dotenv()
 
-VULNERABILITIES = Path.cwd() / "vulnerabilities"
+NVD_LOCAL_REPO = Path(os.getenv("NVD_LOCAL_REPO", "/nvd_severity"))
 
 # rate limits
 # https://nvd.nist.gov/developers/start-here#
@@ -23,60 +26,87 @@ NVD_TOKEN = os.getenv('NVD_TOKEN')
 if NVD_TOKEN:
     MAX_RATE = 10
 
-
-def get_cvss_by_source_type(source_type: Literal['Primary', 'Secondary'], cvss_list):
-    return next(filter(lambda x: x["type"] == source_type, cvss_list), None)
+INCREMENTAL_UPDATE = os.getenv("INCREMENTAL_UPDATE", False)
 
 
-def extract_severity(cve) -> str:
-
-    metrics = cve.get("metrics", {})
-    cvss_list = metrics.get("cvssMetricV3", metrics.get("cvssMetricV2"))
-    if cvss_list:
-        cvss = get_cvss_by_source_type("Primary", cvss_list)
-        if cvss is None:
-            cvss = get_cvss_by_source_type("Secondary", cvss_list)
-        return cvss.get("baseSeverity")
-
-    return "UNKNOWN"
+def get_required_env(key: str):
+    env_var = os.getenv(key)
+    if not env_var:
+        raise ValueError(f"env var {key} is required")
+    return env_var
 
 
-def extract_description(cve) -> str:
-    return [d["value"] for d in cve["descriptions"] if d["lang"] == "en"][0]
+GITHUB_TOKEN = get_required_env("GITHUB_TOKEN")
+GITHUB_USER_NAME = get_required_env("GITHUB_USER_NAME")
+GITHUB_USER_EMAIL = get_required_env("GITHUB_USER_EMAIL")
+
+DEFAULT_REPO_OWNER = "nikpivkin"
+DEFAULT_REPO_NAME = "nvd-severity"
+
+REPO_OWNER = os.getenv("REPO_OWNER", DEFAULT_REPO_OWNER)
+REPO_NAME = os.getenv("REPO_NAME", DEFAULT_REPO_NAME)
+REPO_URL = f"https://{GITHUB_TOKEN}@github.com/{REPO_OWNER}/{REPO_NAME}.git"
+REPO_BRANCH = os.getenv("REPO_BRANCH", "main")
 
 
-async def save_vulnerability_to_file(identifier, model):
-    vulnerability_file = VULNERABILITIES / f"{identifier}.json"
+async def save_vulnerability_to_file(target_path, identifier, model):
+    vulnerability_file = target_path / f"{identifier}.json"
 
     async with aiofiles.open(vulnerability_file, "w") as f:
         await f.write(json.dumps(model, indent=2))
 
 
-async def map_and_save_vulnerabilities(vulnerabilities):
+async def map_and_save_vulnerabilities(target_path, vulnerabilities):
     for vulnerability in vulnerabilities:
-
-        model = {
-            "Description": extract_description(vulnerability),
-            "Severity": extract_severity(vulnerability)
-        }
-
         await save_vulnerability_to_file(
+            target_path,
             vulnerability["id"],
-            model
+            cveMapper.map(vulnerability)
         )
 
 
-async def main():
-    logging.basicConfig(level=logging.DEBUG)
-    VULNERABILITIES.mkdir(exist_ok=True)
-
+async def load_cve(path):
     async with NVD(
             token=NVD_TOKEN,
             max_rate=MAX_RATE,
             time_window=TIME_WINDOW
     ) as nvd:
+
+        if INCREMENTAL_UPDATE:
+            time_of_last_update = (datetime.utcnow() - timedelta(days=2))
+            await nvd.get_nvd_params(time_of_last_update=time_of_last_update)
+        else:
+            await nvd.get_nvd_params()
+
         async for vulnerabilities in nvd.get():
-            await map_and_save_vulnerabilities(vulnerabilities)
+            await map_and_save_vulnerabilities(path, vulnerabilities)
+
+
+def clone_nvd_repo(git):
+    if NVD_LOCAL_REPO.exists():
+        logging.info(f"Clone local {NVD_LOCAL_REPO} repo")
+        git.clone(NVD_LOCAL_REPO, local=True, remote_url=REPO_URL)
+    else:
+        logging.info(f"Clone {REPO_URL} repo")
+        git.clone(REPO_URL, local=False)
+
+
+async def main():
+    logging.basicConfig(level=logging.INFO)
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        nvd_repo_path = Path(tmp_dir)
+
+        git = Git(nvd_repo_path, GITHUB_USER_NAME, GITHUB_USER_EMAIL)
+        clone_nvd_repo(git)
+        git.checkout(REPO_BRANCH)
+
+        cve_path = nvd_repo_path / "vulnerabilities"
+
+        await load_cve(cve_path)
+
+        git.commit(cve_path.as_posix(), "test")
+        git.push(REPO_BRANCH)
 
 
 def run():
