@@ -2,14 +2,12 @@ import asyncio
 import json
 import logging
 import os
-import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 
 import aiofiles
 from dotenv import load_dotenv
 
-from nvd_severity.git import Git
 from nvd_severity.mapper import cveMapper
 from nvd_severity.nvd import NVD
 
@@ -27,26 +25,6 @@ if NVD_TOKEN:
     MAX_RATE = 10
 
 INCREMENTAL_UPDATE = os.getenv("INCREMENTAL_UPDATE", False)
-
-
-def get_required_env(key: str):
-    env_var = os.getenv(key)
-    if not env_var:
-        raise ValueError(f"env var {key} is required")
-    return env_var
-
-
-GITHUB_TOKEN = get_required_env("GITHUB_TOKEN")
-GITHUB_USER_NAME = get_required_env("GITHUB_USER_NAME")
-GITHUB_USER_EMAIL = get_required_env("GITHUB_USER_EMAIL")
-
-DEFAULT_REPO_OWNER = "nikpivkin"
-DEFAULT_REPO_NAME = "nvd-severity"
-
-REPO_OWNER = os.getenv("REPO_OWNER", DEFAULT_REPO_OWNER)
-REPO_NAME = os.getenv("REPO_NAME", DEFAULT_REPO_NAME)
-REPO_URL = f"https://{GITHUB_TOKEN}@github.com/{REPO_OWNER}/{REPO_NAME}.git"
-REPO_BRANCH = os.getenv("REPO_BRANCH", "main")
 
 
 async def save_vulnerability_to_file(target_path, identifier, model):
@@ -82,33 +60,12 @@ async def load_cve(path):
             await map_and_save_vulnerabilities(path, vulnerabilities)
 
 
-def clone_nvd_repo(git: Git):
-    if NVD_LOCAL_REPO.exists():
-        logging.info(f"Clone local {NVD_LOCAL_REPO} repo")
-        git.clone(NVD_LOCAL_REPO, remote_url=REPO_URL)
-    else:
-        logging.info(f"Clone {REPO_URL} repo")
-        git.clone(REPO_URL)
-
-
 async def main():
     logging.basicConfig(level=logging.INFO)
 
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        nvd_repo_path = Path(tmp_dir)
+    cve_path = NVD_LOCAL_REPO / "vulnerabilities"
 
-        git = Git(nvd_repo_path, GITHUB_TOKEN, GITHUB_USER_NAME, GITHUB_USER_EMAIL)
-        clone_nvd_repo(git)
-        git.checkout(REPO_BRANCH)
-
-        cve_path = nvd_repo_path / "vulnerabilities"
-
-        await load_cve(cve_path)
-
-        git.add(cve_path.as_posix())
-
-        git.commit("test")
-        git.push()
+    await load_cve(cve_path)
 
 
 def run():
