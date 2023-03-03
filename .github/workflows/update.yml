@@ -1,0 +1,43 @@
+name: test
+
+on: 
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * *'
+  
+env:
+  IMAGE: nvd_severity
+  COMMIT_MESSAGE: update cve
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Build
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          load: true
+          tags: ${{ env.IMAGE }}
+
+      - name: Run
+        run: |
+          docker run --rm -u 0 \
+          -e NVD_TOKEN=${{ secrets.NVD_TOKEN }} \
+          -e INCREMENTAL_UPDATE=True \
+          -e NVD_LOCAL_REPO="/home/nonroot/workspace" \
+          -v "${GITHUB_WORKSPACE}:/home/nonroot/workspace" \
+          ${{ env.IMAGE }} 
+
+      - name: Git
+        run: |
+          git config user.name ${{ vars.USER_NAME }}
+          git config user.email ${{ vars.USER_EMAIL }}
+          git add vulnerabilities
+          git commit -m "$COMMIT_MESSAGE"
+          git push

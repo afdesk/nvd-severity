@@ -1,8 +1,9 @@
 import asyncio
 from contextlib import AbstractAsyncContextManager
+from datetime import datetime
 from logging import Logger
 from types import TracebackType
-from typing import AsyncGenerator, Type
+from typing import AsyncGenerator, Type, Optional
 
 import aiohttp
 import backoff
@@ -45,17 +46,24 @@ class NVD(AbstractAsyncContextManager):
         self._page_size = page_size
 
         self._total_results = None
-        self._start_index = 0
         self._params = {}
 
         self._rate_limiter = AsyncLimiter(max_rate, time_window)
         connector = aiohttp.TCPConnector(limit_per_host=max_rate)
         self._session = aiohttp.ClientSession(connector=connector, trust_env=True, headers=self._headers)
 
-    async def _get_nvd_params(self):
+    async def get_nvd_params(self, time_of_last_update: Optional[datetime] = None):
 
         self._params["startIndex"] = 0
         self._params["resultsPerPage"] = 1
+
+        if time_of_last_update:
+
+            self._params["lastModStartDate"] = time_of_last_update.isoformat()
+            self._params["lastModEndDate"] = datetime.utcnow().isoformat()
+            self._logger.info(
+                f'Fetching updated CVE entries after {self._params["lastModStartDate"]}'
+            )
 
         await self._request()
 
@@ -80,15 +88,13 @@ class NVD(AbstractAsyncContextManager):
                     data = await response.json()
                     if start_index == 0:
                         self._total_results = data["totalResults"]
-                        self._start_index = data["startIndex"]
                     vulnerabilities = [v["cve"] for v in data["vulnerabilities"]]
                     await asyncio.sleep(self._interval)
                     return vulnerabilities
 
     async def get(self) -> AsyncGenerator:
-        await self._get_nvd_params()
 
-        indexes = range(self._start_index, self._total_results, self._page_size)
+        indexes = range(0, self._total_results, self._page_size)
         nvd_requests = list(map(self._request, indexes))
 
         total_tasks = len(nvd_requests)
@@ -105,8 +111,8 @@ class NVD(AbstractAsyncContextManager):
 
     async def __aexit__(
             self,
-            __exc_type: Type[BaseException] | None,
-            __exc_value: BaseException | None,
-            __traceback: TracebackType | None
+            __exc_type: Optional[Type[BaseException]],
+            __exc_value:  Optional[BaseException],
+            __traceback: Optional[TracebackType]
     ) -> None:
         await self._session.close()
