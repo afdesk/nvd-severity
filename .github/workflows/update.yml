@@ -1,4 +1,4 @@
-name: test
+name: auto-updater
 
 on: 
   workflow_dispatch:
