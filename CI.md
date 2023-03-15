@@ -9,7 +9,7 @@ Next, you need to define the variables, which will be used to configure git para
 
 Go to Repo -> Settings -> Secrets and variables and add new repository variables USER_EMAIL and USER_NAME .
 
-![permission](doc/img/variables.png)
+![variables](doc/img/variables.png)
 
 And the last step, it is not necessary, but it is desirable, because it will increase the speed of vulnerability updates.
 
@@ -17,4 +17,4 @@ And the last step, it is not necessary, but it is desirable, because it will inc
 
 2. Go to Repo -> Settings -> Secrets and variables and add new repository secret `NVD_TOKEN`.
 
-![permission](doc/img/secrets.png)
+![secrets](doc/img/secrets.png)
